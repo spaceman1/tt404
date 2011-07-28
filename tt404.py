@@ -14,26 +14,31 @@ def _bare_address_string(self):
   # Thank you, thank you, thank you, Santoso Wijaya (santa4nt) http://bugs.python.org/issue6085
   host, port = self.client_address[:2]
   return '%s' % host
-    
+
+def stripSections(path, itemType):
+  out = ''
+  itemCount = 0
+  shouldStrip = lambda item:item.get('key') in libBlacklist if (itemType == 'lib') else lambda item:item.get('identifier') in pluginBlacklist
+  original = etree.parse('http://127.0.0.1:32400' + path)
+  for item in original.xpath('/MediaContainer/Directory'):
+    if not shouldStrip(item):
+      out += etree.tostring(item)
+      itemCount += 1
+  
+  # Populate top level element
+  outer = '<MediaContainer '
+  for k,v in original.xpath('/MediaContainer')[0].attrib.iteritems():
+    if k != 'size': outer += '%s="%s" ' % (k, v)
+  outer += 'size="%i">\n' % itemCount
+  return outer + out + '</MediaContainer>'
+  
+
 class PMSHandler(BaseHTTPRequestHandler):
   def do_GET(self):
     print 'handling get request ' + self.path
     err = False
     if self.path == '/library/sections' or self.path == '/library/sections/':
-      originalLibs = etree.parse('http://127.0.0.1:32400/library/sections')
-      out = ''
-      itemCount = 0
-      for lib in originalLibs.xpath('/MediaContainer/Directory'):
-        if lib.get('key') not in libBlacklist:
-          out += etree.tostring(lib)
-          itemCount += 1
-      
-      # Populate top level element
-      outer = '<MediaContainer '
-      for k,v in originalLibs.xpath('/MediaContainer')[0].attrib.iteritems():
-        if k != 'size': outer += '%s="%s" ' % (k, v)
-      outer += 'size="%i">\n' % itemCount
-      out = outer + out + '\n</MediaContainer>'
+      out = stripSections(self.path, 'lib')
     elif self.path.startswith('/library/sections/'):
       if self.path.split('/')[3] in libBlacklist:
         err = True
