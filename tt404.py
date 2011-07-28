@@ -1,8 +1,13 @@
 from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from  lxml import etree
 import urllib
+import re
 
-from conf import libBlacklist
+from conf import libBlacklist, pluginBlacklist
+
+# ignored sections: accounts, search, servers, status
+# partially ignored: services, system
+# sections TODO: /services/browse[/]?, /manage
 
 def getURL(url):
   f = urllib.urlopen(url)
@@ -18,7 +23,13 @@ def _bare_address_string(self):
 def stripSections(path, itemType):
   out = ''
   itemCount = 0
-  shouldStrip = lambda item:item.get('key') in libBlacklist if (itemType == 'lib') else lambda item:item.get('identifier') in pluginBlacklist
+  
+  if itemType == 'lib': shouldStrip = lambda item:item.get('key') in libBlacklist
+  elif itemType == 'plugin': shouldStrip = lambda item:item.get('identifier') in pluginBlacklist
+  else:
+    print 'unknown item type ' + itemType
+    shouldStrip = lambda item:False
+  
   original = etree.parse('http://127.0.0.1:32400' + path)
   for item in original.xpath('/MediaContainer/Directory'):
     if not shouldStrip(item):
@@ -45,6 +56,8 @@ class PMSHandler(BaseHTTPRequestHandler):
         out = '<html><head><title>Not Found</title></head><body><h1>404 Not Found</h1></body></html>'
       else:
         out = getURL('http://127.0.0.1:32400' + self.path)
+    elif self.path in ['/music', '/music/', '/photos', '/photos/', '/video', '/video/', '/applications', '/applications/'] or re.match(r'/system/plugins/[^/]+[/]?$', self.path):
+      out = stripSections(self.path, 'plugin')
     else:
       # TODO: copy headers from PMS
       print 'unknown path:' + self.path
