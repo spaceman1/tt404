@@ -4,15 +4,16 @@ import urllib
 import re
 from itertools import ifilter
 
-from conf import libBlacklist, pluginBlacklist
+from conf import libBlacklist, pluginBlacklist, noManage, noBrowse
 
 kPluginShortPaths = ['/music', '/photos', '/video', '/applications']
 kPluginPaths =  kPluginShortPaths + map(lambda x: x+'/', kPluginShortPaths)
 kErrorBody = '<html><head><title>Not Found</title></head><body><h1>404 Not Found</h1></body></html>'
+kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbidden</h1></body></html>'
 
 # ignored sections: accounts, search, servers, status
 # partially ignored: services, system
-# sections TODO: /services/browse[/]?, /manage
+# sections TODO: /manage
 
 # TODO: block attempts to access hidden plug-ins
 # TODO: option to block all items from outside the app store
@@ -21,7 +22,6 @@ kErrorBody = '<html><head><title>Not Found</title></head><body><h1>404 Not Found
 # TODO: Create a script for easy lookup of library+plug-in names+IDs
 # TODO: Add a sample conf file
 # TODO: Copy headers from PMS, overwrite only the content-length
-# TODO: Option to block browse service and manage completely
 
 # ISSUE: We can't block attempts to see inside hidden plug-ins without knowing their key. We can't filter /system/plugins/* that way as the keys are wonky
 # POSSIBLE Solution: maintain a whitelist of valid keys based on calls to plugin directories
@@ -81,6 +81,7 @@ class PMSHandler(BaseHTTPRequestHandler):
   def do_GET(self):
     print 'handling get request ' + self.path
     err = False
+    forbid = False
     if self.path == '/library/sections' or self.path == '/library/sections/':
       out = self.stripSections(self.path, 'lib')
     elif self.path.startswith('/library/sections/') and self.path.split('/')[3] in libBlacklist:
@@ -92,13 +93,24 @@ class PMSHandler(BaseHTTPRequestHandler):
       err = True
       out = kErrorBody
     elif self.path.startswith('/services/browse'):
-      out = self.stripFolders(self.path)
+      if noBrowse:
+        forbid = True
+        out = kForbiddenBody
+      else:
+        out = self.stripFolders(self.path)
+        out = kForbiddenBody
+    elif noManage and self.path.startswith('/manage'):
+      forbid = True
+      out = kForbiddenBody
     else:
       print 'unknown path:' + self.path
       out = getURL('http://127.0.0.1:32400' + self.path)
     
     if err:
       self.send_response(404, 'Not found')
+      self.send_header('Content-type', 'text/html')
+    elif forbid:
+      self.send_response(403, 'Forbidden')
       self.send_header('Content-type', 'text/html')
     else:
       self.send_response(200)
