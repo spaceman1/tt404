@@ -1,0 +1,11 @@
+#!/bin/zsh
+if test `id -u` != "0"; then
+  echo "This needs to be called as root"
+  exit 1
+fi
+
+if command which -s pfctl; then
+  pfctl -f pf.conf
+else
+  echo "PF not installed"
+fi
