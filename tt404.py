@@ -19,7 +19,7 @@ kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbi
 # TODO: block attempts to access hidden plug-ins
 # TODO: Cache results from getPlexOnlinePlugins.
 # TODO: Have this work with other HTTP verbs: HEAD, GET, POST, PUT, TRACE, OPTIONS, CONNECT, PATCH
-# TODO: Add the pf.conf file, create one for ipfw, create an installer script
+# TODO: Create conf for ipfw, create an installer script
 # TODO: Create a script for easy lookup of library+plug-in names+IDs
 # TODO: Add a sample conf file
 # TODO: Copy headers from PMS, overwrite only the content-length
