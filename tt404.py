@@ -16,14 +16,22 @@ kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbi
 # CHECK: Is there some way to access media using the part key?
 # TODO: Have this work with other HTTP verbs: HEAD, GET, POST, PUT, TRACE, OPTIONS, CONNECT, PATCH
 # TODO: Create conf for ipfw
-# TODO: Copy headers from PMS, overwrite only the content-length
+# TODO: Copy headers to PMS
 # TODO: FIX crash when asking for /video_s_
 
 def getURL(url):
-  f = urllib.urlopen(url)
-  r = f.read()
-  f.close()
-  return r
+	f = urllib.urlopen(url)
+	content = f.read()
+	headerStr = str(f.headers)
+	headers = dict()
+	for headerLine in headerStr.split('\r\n')[:-1]:
+		k, v = headerLine.split(':', 1)
+		headers[k] = v[1:]
+	return content, headers
+
+def getEtree(url):
+  content, headers = getURL(url)
+  return etree.fromstring(content), headers
 
 def _bare_address_string(self):
   # Thank you, thank you, thank you, Santoso Wijaya (santa4nt) http://bugs.python.org/issue6085
@@ -83,7 +91,7 @@ class PMSHandler(BaseHTTPRequestHandler):
       print 'unknown item type ' + itemType
       shouldStrip = lambda item:False
     
-    original = etree.parse('http://127.0.0.1:32400' + path)
+    original, headers = getEtree('http://127.0.0.1:32400' + path)
     for item in original.xpath('/MediaContainer/Directory'):
       if not shouldStrip(item):
         out += etree.tostring(item)
@@ -94,10 +102,10 @@ class PMSHandler(BaseHTTPRequestHandler):
     for k,v in original.xpath('/MediaContainer')[0].attrib.iteritems():
       if k != 'size': outer += '%s="%s" ' % (k, v)
     outer += 'size="%i">\n' % itemCount
-    return outer + out + '</MediaContainer>'
+    return outer + out + '</MediaContainer>', headers
   
   def stripFolders(self, path):
-    sections = etree.parse('http://127.0.0.1:32400/library/sections')
+    sections, headers = getEtree('http://127.0.0.1:32400/library/sections')
     folderBlacklist = list()
     for item in sections.xpath('/MediaContainer/Directory'):
       if item.get('key') in libBlacklist:
@@ -110,15 +118,15 @@ class PMSHandler(BaseHTTPRequestHandler):
       if item.get('path') not in folderBlacklist:
         out += etree.tostring(item)
         itemCount += 1
-    return '<?xml version="1.0" encoding="UTF-8"?>\n<MediaContainer size="%i">\n' % itemCount + out + '</MediaContainer>'
+    return '<?xml version="1.0" encoding="UTF-8"?>\n<MediaContainer size="%i">\n' % itemCount + out + '</MediaContainer>', headers
   
   def do_GET(self):
     err = forbid = passthrough = False
-    
+
     if self.path == '/library/sections' or self.path == '/library/sections/':
-      out = self.stripSections(self.path, 'lib')
+      out, headers = self.stripSections(self.path, 'lib')
     elif self.path.startswith('/system/library/sections'):
-      out = self.stripSections(self.path, 'libSystem')
+      out, headers = self.stripSections(self.path, 'libSystem')
     elif self.path.startswith('/library/sections/') and self.path.split('/')[3] in libBlacklist:
       err = True
     elif self.path in kPluginPaths:
@@ -137,7 +145,7 @@ class PMSHandler(BaseHTTPRequestHandler):
       if noBrowse:
         forbid = True
       else:
-        out = self.stripFolders(self.path)
+        out, headers = self.stripFolders(self.path)
     elif noManage and self.path.startswith('/manage'):
       forbid = True
     elif re.match(r'/library/metadata/.+', self.path):
@@ -151,23 +159,24 @@ class PMSHandler(BaseHTTPRequestHandler):
     
     if passthrough:
       print 'unknown path:' + self.path
-      out = getURL('http://127.0.0.1:32400' + self.path)
+      out, headers = getURL('http://127.0.0.1:32400' + self.path)
     
     if err:
       self.send_response(404, 'Not found')
-      self.send_header('Content-type', 'text/html')
+      headers = {'Content-Type': 'text/html'}
       out = kErrorBody
     elif forbid:
       self.send_response(403, 'Forbidden')
-      self.send_header('Content-type', 'text/html')
+      headers = {'Content-Type': 'text/html'}
       out = kForbiddenBody
     else:
       self.send_response(200)
-      self.send_header('Content-type', 'text/xml;charset=utf-8')
     
-    self.send_header('Content-length', len(out))
-    self.send_header('X-Plex-Protocol', '1.0')
+    for k, v in headers.iteritems():
+      if k != 'Content-Length': self.send_header(k, v)
+      else: self.send_header('Content-Length', len(out))
     self.end_headers()
+    
     self.wfile.write(out)
   
 #  def do_POST(self):
