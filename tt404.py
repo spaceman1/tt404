@@ -3,8 +3,9 @@ from  lxml import etree
 import urllib
 import re
 from itertools import ifilter
+import json
 
-from conf import libBlacklist, pluginBlacklist, noManage, noBrowse
+from conf import libBlacklist, pluginBlacklist, noManage, noBrowse, plexOnlineOnly
 
 kPluginShortPaths = ['/music', '/photos', '/video', '/applications']
 kPluginPaths =  kPluginShortPaths + map(lambda x: x+'/', kPluginShortPaths)
@@ -16,7 +17,7 @@ kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbi
 # sections TODO: /manage
 
 # TODO: block attempts to access hidden plug-ins
-# TODO: option to block all items from outside the app store
+# TODO: Cache results from getPlexOnlinePlugins.
 # TODO: Have this work with other HTTP verbs: HEAD, GET, POST, PUT, TRACE, OPTIONS, CONNECT, PATCH
 # TODO: Add the pf.conf file, create one for ipfw, create an installer script
 # TODO: Create a script for easy lookup of library+plug-in names+IDs
@@ -37,6 +38,11 @@ def _bare_address_string(self):
   host, port = self.client_address[:2]
   return '%s' % host
   
+def getPlexOnlinePlugins():
+  plugins = list()
+  for item in json.load(urllib.urlopen('http://plugins.plexapp.com/apps/all.json')):
+    plugins.append(item['app']['identifier'])
+  return plugins
 
 class PMSHandler(BaseHTTPRequestHandler):
   def stripSections(self, path, itemType):
@@ -45,6 +51,9 @@ class PMSHandler(BaseHTTPRequestHandler):
     
     if itemType == 'lib': shouldStrip = lambda item:item.get('key') in libBlacklist
     elif itemType == 'plugin': shouldStrip = lambda item:item.get('identifier') in pluginBlacklist
+    elif itemType == 'pluginOnlineOnly':
+      plexOnlinePlugins = getPlexOnlinePlugins()
+      shouldStrip = lambda item:item.get('identifier') in pluginBlacklist or item.get('identifier') not in plexOnlinePlugins
     else:
       print 'unknown item type ' + itemType
       shouldStrip = lambda item:False
@@ -79,39 +88,43 @@ class PMSHandler(BaseHTTPRequestHandler):
     return '<?xml version="1.0" encoding="UTF-8"?>\n<MediaContainer size="%i">\n' % itemCount + out + '</MediaContainer>'
   
   def do_GET(self):
-    print 'handling get request ' + self.path
-    err = False
-    forbid = False
+    err = forbid = passthrough = False
+    
     if self.path == '/library/sections' or self.path == '/library/sections/':
       out = self.stripSections(self.path, 'lib')
     elif self.path.startswith('/library/sections/') and self.path.split('/')[3] in libBlacklist:
       err = True
-      out = kErrorBody
     elif self.path in kPluginPaths or re.match(r'/system/plugins/[^/]+[/]?$', self.path):
-      out = self.stripSections(self.path, 'plugin')
-    elif any(ifilter(lambda p: self.path.startswith(p), kPluginShortPaths)) and self.path.split('/')[2] in pluginBlacklist:
-      err = True
-      out = kErrorBody
+      kind = 'pluginOnlineOnly' if plexOnlineOnly else 'plugin'
+      out = self.stripSections(self.path, kind)
+    elif any(ifilter(lambda p: self.path.startswith(p), kPluginShortPaths)):
+      pluginName = self.path.split('/')[2]
+      if plexOnlineOnly and pluginName not in getPlexOnlinePlugins() or pluginName in pluginBlacklist:
+        err = True
+      else:
+        passthrough = True
     elif self.path.startswith('/services/browse'):
       if noBrowse:
         forbid = True
-        out = kForbiddenBody
       else:
         out = self.stripFolders(self.path)
-        out = kForbiddenBody
     elif noManage and self.path.startswith('/manage'):
       forbid = True
-      out = kForbiddenBody
     else:
+      passthrough = True
+    
+    if passthrough:
       print 'unknown path:' + self.path
       out = getURL('http://127.0.0.1:32400' + self.path)
     
     if err:
       self.send_response(404, 'Not found')
       self.send_header('Content-type', 'text/html')
+      out = kErrorBody
     elif forbid:
       self.send_response(403, 'Forbidden')
       self.send_header('Content-type', 'text/html')
+      out = kForbiddenBody
     else:
       self.send_response(200)
       self.send_header('Content-type', 'text/xml;charset=utf-8')
