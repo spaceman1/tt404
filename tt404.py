@@ -176,7 +176,7 @@ class PMSHandler(BaseHTTPRequestHandler):
 def main():
   BaseHTTPRequestHandler.address_string = _bare_address_string # see comment above
   print 'starting server'
-  server = HTTPServer(('', 32404), PMSHandler)
+  server = HTTPServer(('127.0.0.1', 32404), PMSHandler)
   print 'server started'
   if plexOnlineOnly: getNonPlexOnlinePlugins()
   try: server.serve_forever()
