@@ -8,3 +8,5 @@ noManage = False
 noBrowse = False
 # Block all plug-ins that aren't listed on plex online. You can still block additional plug-ins with pluginBlacklist
 plexOnlineOnly = False
+# Set the age of the viewer when filtering libraries. Set to 0 to disable.
+viewerAge = 0

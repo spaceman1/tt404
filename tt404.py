@@ -5,8 +5,9 @@ import re
 from itertools import ifilter
 import json
 import base64
-from conf import libBlacklist, pluginBlacklist, noManage, noBrowse, plexOnlineOnly
+from conf import libBlacklist, pluginBlacklist, noManage, noBrowse, plexOnlineOnly, viewerAge
 import datetime
+import contentRatings
 
 kPluginShortPaths = ['/music', '/photos', '/video', '/applications']
 kPluginPaths =  kPluginShortPaths + map(lambda x: x+'/', kPluginShortPaths)
@@ -18,6 +19,7 @@ kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbi
 # TODO: Create conf for ipfw
 # TODO: Copy headers to PMS
 # TODO: FIX crash when asking for /video_s_
+# TODO: Option to filter by contentRating
 
 def getURL(url):
 	f = urllib.urlopen(url)
@@ -78,6 +80,7 @@ class PMSHandler(BaseHTTPRequestHandler):
     itemCount = 0
     
     if itemType == 'lib': shouldStrip = lambda item:item.get('key') in libBlacklist
+    elif itemType == 'libMenu': shouldStrip = lambda item: viewerAge and contentRatings.minAgeForContentRating(item.get('contentRating')) > viewerAge
     elif itemType == 'libSystem': shouldStrip = lambda item:base64.b64decode(item.get('key') + '==').split('/')[-1] in libBlacklist
     elif itemType == 'plugin': shouldStrip = lambda item:item.get('key') in pluginBlacklist
     elif itemType == 'pluginSystem': shouldStrip = lambda item:base64.b64decode(item.get('key') + '==').split('/')[-1] in pluginBlacklist
@@ -127,8 +130,10 @@ class PMSHandler(BaseHTTPRequestHandler):
       out, headers = self.stripSections(self.path, 'lib')
     elif self.path.startswith('/system/library/sections'):
       out, headers = self.stripSections(self.path, 'libSystem')
-    elif self.path.startswith('/library/sections/') and self.path.split('/')[3] in libBlacklist:
-      err = True
+    elif self.path.startswith('/library/sections/'):
+      if self.path.split('/')[3] in libBlacklist: err = True
+      elif re.match(r'/library/sections/[^/]+/.+', self.path): out, headers = self.stripSections(self.path, 'libMenu')
+      else: passthrough = True
     elif self.path in kPluginPaths:
       kind = 'pluginOnlineOnly' if plexOnlineOnly else 'plugin'
       out = self.stripSections(self.path, kind)
