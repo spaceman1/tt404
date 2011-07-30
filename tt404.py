@@ -4,7 +4,7 @@ import urllib
 import re
 from itertools import ifilter
 import json
-
+import base64
 from conf import libBlacklist, pluginBlacklist, noManage, noBrowse, plexOnlineOnly
 
 kPluginShortPaths = ['/music', '/photos', '/video', '/applications']
@@ -15,16 +15,17 @@ kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbi
 # ignored sections: accounts, search, servers, status
 # partially ignored: services, system
 
-# sections TODO: /system/library/sections
-# TODO: block attempts to access hidden plug-ins
+# sections TODO: /library/metadata/
+
+# CHECK: Is there some way to access media using the part key?
 # TODO: Cache results from getPlexOnlinePlugins.
 # TODO: Have this work with other HTTP verbs: HEAD, GET, POST, PUT, TRACE, OPTIONS, CONNECT, PATCH
 # TODO: Create conf for ipfw
-# TODO: Add a sample conf file
 # TODO: Copy headers from PMS, overwrite only the content-length
 
-# ISSUE: We can't block attempts to see inside hidden plug-ins without knowing their key. We can't filter /system/plugins/* that way as the keys are wonky
-# POSSIBLE Solution: maintain a whitelist of valid keys based on calls to plugin directories
+# TODO: block attempts to access hidden plug-ins
+# sub TODO: add to stripSections: elif itemType == 'pluginSystem': shouldStrip = lambda item: base64.b64decode(item.get('key') + '==').split('/')[-1] in pluginBlacklist
+# sub TODO: switch everything that references identifier to key
 
 def getURL(url):
   f = urllib.urlopen(url)
@@ -49,6 +50,7 @@ class PMSHandler(BaseHTTPRequestHandler):
     itemCount = 0
     
     if itemType == 'lib': shouldStrip = lambda item:item.get('key') in libBlacklist
+    elif itemType == 'libSystem': shouldStrip = lambda item: base64.b64decode(item.get('key') + '==').split('/')[-1] in libBlacklist
     elif itemType == 'plugin': shouldStrip = lambda item:item.get('identifier') in pluginBlacklist
     elif itemType == 'pluginOnlineOnly':
       plexOnlinePlugins = getPlexOnlinePlugins()
@@ -91,6 +93,8 @@ class PMSHandler(BaseHTTPRequestHandler):
     
     if self.path == '/library/sections' or self.path == '/library/sections/':
       out = self.stripSections(self.path, 'lib')
+    elif self.path.startswith('/system/library/sections'):
+      out = self.stripSections(self.path, 'libSystem')
     elif self.path.startswith('/library/sections/') and self.path.split('/')[3] in libBlacklist:
       err = True
     elif self.path in kPluginPaths or re.match(r'/system/plugins/[^/]+[/]?$', self.path):
