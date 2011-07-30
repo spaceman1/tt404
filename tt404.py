@@ -6,6 +6,7 @@ from itertools import ifilter
 import json
 import base64
 from conf import libBlacklist, pluginBlacklist, noManage, noBrowse, plexOnlineOnly
+import datetime
 
 kPluginShortPaths = ['/music', '/photos', '/video', '/applications']
 kPluginPaths =  kPluginShortPaths + map(lambda x: x+'/', kPluginShortPaths)
@@ -14,10 +15,10 @@ kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbi
 
 # sections TODO: /library/metadata/
 # CHECK: Is there some way to access media using the part key?
-# TODO: Cache results from getNonPlexOnlinePlugins.
 # TODO: Have this work with other HTTP verbs: HEAD, GET, POST, PUT, TRACE, OPTIONS, CONNECT, PATCH
 # TODO: Create conf for ipfw
 # TODO: Copy headers from PMS, overwrite only the content-length
+# TODO: FIX crash when asking for /video_s_
 
 def getURL(url):
   f = urllib.urlopen(url)
@@ -29,8 +30,13 @@ def _bare_address_string(self):
   # Thank you, thank you, thank you, Santoso Wijaya (santa4nt) http://bugs.python.org/issue6085
   host, port = self.client_address[:2]
   return '%s' % host
-  
+
+_nonPlexOnlinePlugins = list()
+_nonPlexOnlinePluginsCacheTime = datetime.datetime(datetime.MINYEAR, 1, 1)
 def getNonPlexOnlinePlugins():
+  global _nonPlexOnlinePlugins, _nonPlexOnlinePluginsCacheTime
+  elapsed = datetime.datetime.now() - _nonPlexOnlinePluginsCacheTime
+  if elapsed.total_seconds() < 3600: return _nonPlexOnlinePlugins
   print 'Getting online plug-ins'
   identifiers = list()
   for item in json.load(urllib.urlopen('http://plugins.plexapp.com/apps/all.json')):
@@ -38,7 +44,8 @@ def getNonPlexOnlinePlugins():
   plugins = list()
   for item in etree.parse('http://127.0.0.1:32400/system/plugins/all').xpath('/MediaContainer/Directory'):
     if item.get('identifier') not in identifiers: plugins.append(base64.b64decode(item.get('key') + '==').split('/')[-1])
-  print plugins
+  _nonPlexOnlinePlugins = plugins
+  _nonPlexOnlinePluginsCacheTime = datetime.datetime.now()
   return plugins
 
 class PMSHandler(BaseHTTPRequestHandler):
@@ -149,6 +156,7 @@ def main():
   print 'starting server'
   server = HTTPServer(('', 32404), PMSHandler)
   print 'server started'
+  if plexOnlineOnly: getNonPlexOnlinePlugins()
   try: server.serve_forever()
   except KeyboardInterrupt:
     print 'Shutting down'
