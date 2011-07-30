@@ -14,13 +14,12 @@ kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbi
 
 # ignored sections: accounts, search, servers, status
 # partially ignored: services, system
-# sections TODO: /manage
 
+# sections TODO: /system/library/sections
 # TODO: block attempts to access hidden plug-ins
 # TODO: Cache results from getPlexOnlinePlugins.
 # TODO: Have this work with other HTTP verbs: HEAD, GET, POST, PUT, TRACE, OPTIONS, CONNECT, PATCH
-# TODO: Create conf for ipfw, create an installer script
-# TODO: Create a script for easy lookup of library+plug-in names+IDs
+# TODO: Create conf for ipfw
 # TODO: Add a sample conf file
 # TODO: Copy headers from PMS, overwrite only the content-length
 
