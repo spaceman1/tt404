@@ -13,7 +13,6 @@ kPluginPaths =  kPluginShortPaths + map(lambda x: x+'/', kPluginShortPaths)
 kErrorBody = '<html><head><title>Not Found</title></head><body><h1>404 Not Found</h1></body></html>'
 kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbidden</h1></body></html>'
 
-# sections TODO: /library/metadata/
 # CHECK: Is there some way to access media using the part key?
 # TODO: Have this work with other HTTP verbs: HEAD, GET, POST, PUT, TRACE, OPTIONS, CONNECT, PATCH
 # TODO: Create conf for ipfw
@@ -48,6 +47,23 @@ def getNonPlexOnlinePlugins():
   _nonPlexOnlinePluginsCacheTime = datetime.datetime.now()
   return plugins
 
+_metadataKeys = dict()
+_metadataKeysCacheTime = datetime.datetime(datetime.MINYEAR, 1, 1)
+def validateMetadataKey(key):
+  global _metadataKeys, _metadataKeysCacheTime
+  try: return _metadataKeys[key]
+  except KeyError: pass
+  elapsed = datetime.datetime.now() - _metadataKeysCacheTime
+  if elapsed.total_seconds() < 3600: raise KeyError
+  print 'Getting metadata keys'
+  base = 'http://127.0.0.1:32400/library/sections/'
+  for lib in etree.parse(base).xpath('/MediaContainer/Directory'):
+    v = lib.get('key') not in libBlacklist
+    for item in etree.parse(base + lib.get('key') + '/all').xpath('/MediaContainer/Video/@ratingKey'):
+      _metadataKeys[item] = v
+  _metadataKeysCacheTime = datetime.datetime.now()
+  return _metadataKeys[key]
+  
 class PMSHandler(BaseHTTPRequestHandler):
   def stripSections(self, path, itemType):
     out = ''
@@ -124,6 +140,12 @@ class PMSHandler(BaseHTTPRequestHandler):
         out = self.stripFolders(self.path)
     elif noManage and self.path.startswith('/manage'):
       forbid = True
+    elif re.match(r'/library/metadata/.+', self.path):
+      try: v = validateMetadataKey(self.path.split('/')[-1])
+      except KeyError: err = True
+      else:
+        if not v: err = True
+        else: passthrough = True
     else:
       passthrough = True
     
