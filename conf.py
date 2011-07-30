@@ -1,7 +1,7 @@
 # The list of library sections to hide
 libBlacklist = ['some id', 'some other id']
 # The list of plug-ins to hide
-pluginBlacklist = ['com.plexapp.plugins.someID', 'com.plexapp.plugins.someOtherID']
+pluginBlacklist = ['some id', 'some other id']
 # Completely block the web manager
 noManage = False
 # Completely block filesystem browsing through /services/browse

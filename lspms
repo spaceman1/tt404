@@ -1,6 +1,7 @@
 #!/usr/bin/python
 from lxml import etree
 import urllib
+import base64
 from conf import libBlacklist, pluginBlacklist
 
 # TODO: have this list items that are hidden by plexOnlineOnly
@@ -17,6 +18,6 @@ print '\n\nPlug-ins'
 print 'Hidden ID' + 41 * ' ' + 'Name'
 print '-' * 61
 for item in etree.parse(urllib.urlopen('http://127.0.0.1:32400/system/plugins/all')).xpath('/MediaContainer/Directory'):
-  key = item.get('identifier')
+  key = base64.b64decode(item.get('key') + '==').split('/')[-1]
   hidden = 'Yes' if key in pluginBlacklist else '   '
-  print '%s   %40s   %s' %(hidden, key, item.get('title'))
+  print '%s   %20s   %s' %(hidden, key, item.get('title'))

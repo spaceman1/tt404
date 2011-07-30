@@ -12,20 +12,12 @@ kPluginPaths =  kPluginShortPaths + map(lambda x: x+'/', kPluginShortPaths)
 kErrorBody = '<html><head><title>Not Found</title></head><body><h1>404 Not Found</h1></body></html>'
 kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbidden</h1></body></html>'
 
-# ignored sections: accounts, search, servers, status
-# partially ignored: services, system
-
 # sections TODO: /library/metadata/
-
 # CHECK: Is there some way to access media using the part key?
-# TODO: Cache results from getPlexOnlinePlugins.
+# TODO: Cache results from getNonPlexOnlinePlugins.
 # TODO: Have this work with other HTTP verbs: HEAD, GET, POST, PUT, TRACE, OPTIONS, CONNECT, PATCH
 # TODO: Create conf for ipfw
 # TODO: Copy headers from PMS, overwrite only the content-length
-
-# TODO: block attempts to access hidden plug-ins
-# sub TODO: add to stripSections: elif itemType == 'pluginSystem': shouldStrip = lambda item: base64.b64decode(item.get('key') + '==').split('/')[-1] in pluginBlacklist
-# sub TODO: switch everything that references identifier to key
 
 def getURL(url):
   f = urllib.urlopen(url)
@@ -38,10 +30,15 @@ def _bare_address_string(self):
   host, port = self.client_address[:2]
   return '%s' % host
   
-def getPlexOnlinePlugins():
-  plugins = list()
+def getNonPlexOnlinePlugins():
+  print 'Getting online plug-ins'
+  identifiers = list()
   for item in json.load(urllib.urlopen('http://plugins.plexapp.com/apps/all.json')):
-    plugins.append(item['app']['identifier'])
+    identifiers.append(item['app']['identifier'])
+  plugins = list()
+  for item in etree.parse('http://127.0.0.1:32400/system/plugins/all').xpath('/MediaContainer/Directory'):
+    if item.get('identifier') not in identifiers: plugins.append(base64.b64decode(item.get('key') + '==').split('/')[-1])
+  print plugins
   return plugins
 
 class PMSHandler(BaseHTTPRequestHandler):
@@ -50,11 +47,15 @@ class PMSHandler(BaseHTTPRequestHandler):
     itemCount = 0
     
     if itemType == 'lib': shouldStrip = lambda item:item.get('key') in libBlacklist
-    elif itemType == 'libSystem': shouldStrip = lambda item: base64.b64decode(item.get('key') + '==').split('/')[-1] in libBlacklist
-    elif itemType == 'plugin': shouldStrip = lambda item:item.get('identifier') in pluginBlacklist
+    elif itemType == 'libSystem': shouldStrip = lambda item:base64.b64decode(item.get('key') + '==').split('/')[-1] in libBlacklist
+    elif itemType == 'plugin': shouldStrip = lambda item:item.get('key') in pluginBlacklist
+    elif itemType == 'pluginSystem': shouldStrip = lambda item:base64.b64decode(item.get('key') + '==').split('/')[-1] in pluginBlacklist
     elif itemType == 'pluginOnlineOnly':
-      plexOnlinePlugins = getPlexOnlinePlugins()
-      shouldStrip = lambda item:item.get('identifier') in pluginBlacklist or item.get('identifier') not in plexOnlinePlugins
+      combinedBlacklist = getNonPlexOnlinePlugins() + pluginBlacklist
+      shouldStrip = lambda item:item.get('key') in combinedBlacklist
+    elif itemType == 'pluginSystemOnlineOnly':
+      combinedBlacklist = getNonPlexOnlinePlugins() + pluginBlacklist
+      shouldStrip = lambda item: base64.b64decode(item.get('key') + '==').split('/')[-1] in combinedBlacklist
     else:
       print 'unknown item type ' + itemType
       shouldStrip = lambda item:False
@@ -97,12 +98,15 @@ class PMSHandler(BaseHTTPRequestHandler):
       out = self.stripSections(self.path, 'libSystem')
     elif self.path.startswith('/library/sections/') and self.path.split('/')[3] in libBlacklist:
       err = True
-    elif self.path in kPluginPaths or re.match(r'/system/plugins/[^/]+[/]?$', self.path):
+    elif self.path in kPluginPaths:
       kind = 'pluginOnlineOnly' if plexOnlineOnly else 'plugin'
+      out = self.stripSections(self.path, kind)
+    elif re.match(r'/system/plugins/[^/]+[/]?$', self.path):
+      kind = 'pluginSystemOnlineOnly' if plexOnlineOnly else 'pluginSystem'
       out = self.stripSections(self.path, kind)
     elif any(ifilter(lambda p: self.path.startswith(p), kPluginShortPaths)):
       pluginName = self.path.split('/')[2]
-      if plexOnlineOnly and pluginName not in getPlexOnlinePlugins() or pluginName in pluginBlacklist:
+      if plexOnlineOnly and pluginName in getNonPlexOnlinePlugins() or pluginName in pluginBlacklist:
         err = True
       else:
         passthrough = True
