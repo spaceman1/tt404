@@ -1,6 +1,6 @@
 from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from  lxml import etree
-import urllib
+import urllib2
 import re
 from itertools import ifilter
 import json
@@ -15,25 +15,35 @@ kErrorBody = '<html><head><title>Not Found</title></head><body><h1>404 Not Found
 kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbidden</h1></body></html>'
 
 # CHECK: Is there some way to access media using the part key?
-# TODO: Have this work with other HTTP verbs: HEAD, GET, POST, PUT, TRACE, OPTIONS, CONNECT, PATCH
+# TODO: Have this work with other HTTP verbs: HEAD, PUT, TRACE, OPTIONS, CONNECT, PATCH
 # TODO: Create conf for ipfw
-# TODO: Copy headers to PMS
 # TODO: FIX crash when asking for /video_s_
-# TODO: Option to filter by contentRating
 
-def getURL(url):
-	f = urllib.urlopen(url)
-	content = f.read()
-	headerStr = str(f.headers)
-	headers = dict()
-	for headerLine in headerStr.split('\r\n')[:-1]:
-		k, v = headerLine.split(':', 1)
-		headers[k] = v[1:]
-	return content, headers
+def getURL(url, data, headers):
+  print 'Requesting', url, data, headers
+  headerDict = dict()
+  for k, v in headers:
+    headerDict[k] = v
+    
+  if not data: data = None
+  req = urllib2.Request(url, data, headerDict, headerDict['host'])
+  f = urllib2.urlopen(req)
+  content = f.read()
+  
+  headerStr = str(f.headers)
+  headers = dict()
+  for headerLine in headerStr.split('\r\n')[:-1]:
+    k, v = headerLine.split(':', 1)
+    headers[k] = v[1:]
+  return content, headers
 
-def getEtree(url):
-  content, headers = getURL(url)
+def getEtree(url, data, headers):
+  content, headers = getURL(url, data, headers)
   return etree.fromstring(content), headers
+
+def getJSON(url, data=None, headers=None):
+  content, headers = getURL(url, data, headers)
+  return json.load(content), headers
 
 def _bare_address_string(self):
   # Thank you, thank you, thank you, Santoso Wijaya (santa4nt) http://bugs.python.org/issue6085
@@ -75,6 +85,14 @@ def validateMetadataKey(key):
   return _metadataKeys[key]
   
 class PMSHandler(BaseHTTPRequestHandler):
+  def getDataAndHeaders(self):
+    headers = self.headers.items()
+    if 'Content-Length' in headers:
+      varLen = int(headers['Content-Length'])
+      data = s.rfile.read(varLen)
+    else: data = None
+    return data, headers
+
   def stripSections(self, path, itemType):
     out = ''
     itemCount = 0
@@ -94,7 +112,7 @@ class PMSHandler(BaseHTTPRequestHandler):
       print 'unknown item type ' + itemType
       shouldStrip = lambda item:False
     
-    original, headers = getEtree('http://127.0.0.1:32400' + path)
+    original, headers = getEtree('http://127.0.0.1:32400' + path, *self.getDataAndHeaders())
     for item in original.xpath('/MediaContainer/Directory'):
       if not shouldStrip(item):
         out += etree.tostring(item)
@@ -108,7 +126,8 @@ class PMSHandler(BaseHTTPRequestHandler):
     return outer + out + '</MediaContainer>', headers
   
   def stripFolders(self, path):
-    sections, headers = getEtree('http://127.0.0.1:32400/library/sections')
+    sections, headers = getEtree('http://127.0.0.1:32400/library/sections', *self.getDataAndHeaders())
+    del headers
     folderBlacklist = list()
     for item in sections.xpath('/MediaContainer/Directory'):
       if item.get('key') in libBlacklist:
@@ -117,13 +136,14 @@ class PMSHandler(BaseHTTPRequestHandler):
     
     out = ''
     itemCount = 0
-    for item in etree.parse('http://127.0.0.1:32400' + path).xpath('/MediaContainer/Path'):
+    content, headers = etree.parse('http://127.0.0.1:32400' + path, *self.getDataAndHeaders())
+    for item in content.xpath('/MediaContainer/Path'):
       if item.get('path') not in folderBlacklist:
         out += etree.tostring(item)
         itemCount += 1
     return '<?xml version="1.0" encoding="UTF-8"?>\n<MediaContainer size="%i">\n' % itemCount + out + '</MediaContainer>', headers
   
-  def do_GET(self):
+  def handleRequest(self):
     err = forbid = passthrough = False
 
     if self.path == '/library/sections' or self.path == '/library/sections/':
@@ -164,7 +184,7 @@ class PMSHandler(BaseHTTPRequestHandler):
     
     if passthrough:
       print 'unknown path:' + self.path
-      out, headers = getURL('http://127.0.0.1:32400' + self.path)
+      out, headers = getURL('http://127.0.0.1:32400' + self.path, *self.getDataAndHeaders())
     
     if err:
       self.send_response(404, 'Not found')
@@ -183,8 +203,12 @@ class PMSHandler(BaseHTTPRequestHandler):
     self.end_headers()
     
     self.wfile.write(out)
+
+  def do_GET(self):
+    self.handleRequest()
   
-#  def do_POST(self):
+  def do_POST(self):
+    self.handleRequest()
 
 
 def main():
