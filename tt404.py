@@ -18,6 +18,7 @@ kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbi
 # TODO: Have this work with other HTTP verbs: HEAD, PUT, TRACE, OPTIONS, CONNECT, PATCH
 # TODO: Create conf for ipfw
 # TODO: FIX crash when asking for /video_s_
+# TODO: FIX validateMetadataKey so it actually does something
 
 def getURL(url, data, headers):
   print 'Requesting', url, data, headers
@@ -113,7 +114,7 @@ class PMSHandler(BaseHTTPRequestHandler):
       shouldStrip = lambda item:False
     
     original, headers = getEtree('http://127.0.0.1:32400' + path, *self.getDataAndHeaders())
-    for item in original.xpath('/MediaContainer/Directory'):
+    for item in original.xpath('/MediaContainer/*'):
       if not shouldStrip(item):
         out += etree.tostring(item)
         itemCount += 1
