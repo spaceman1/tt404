@@ -139,16 +139,20 @@ class PMSHandler(BaseHTTPRequestHandler):
       else: passthrough = True
     elif self.path in kPluginPaths:
       kind = 'pluginOnlineOnly' if plexOnlineOnly else 'plugin'
-      out = self.stripSections(self.path, kind)
+      out, headers = self.stripSections(self.path, kind)
     elif re.match(r'/system/plugins/[^/]+[/]?$', self.path):
       kind = 'pluginSystemOnlineOnly' if plexOnlineOnly else 'pluginSystem'
-      out = self.stripSections(self.path, kind)
+      out, headers = self.stripSections(self.path, kind)
     elif any(ifilter(lambda p: self.path.startswith(p), kPluginShortPaths)):
-      pluginName = self.path.split('/')[2]
-      if plexOnlineOnly and pluginName in getNonPlexOnlinePlugins() or pluginName in pluginBlacklist:
+      pathComponents = self.path.split('/')
+      if len(pathComponents) < 3:
         err = True
       else:
-        passthrough = True
+        pluginName = pathComponents[2]
+        if plexOnlineOnly and pluginName in getNonPlexOnlinePlugins() or pluginName in pluginBlacklist:
+          err = True
+        else:
+          passthrough = True
     elif self.path.startswith('/services/browse'):
       if noBrowse:
         forbid = True
