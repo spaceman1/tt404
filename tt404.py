@@ -18,7 +18,6 @@ kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbi
 # TODO: Have this work with other HTTP verbs: HEAD, PUT, TRACE, OPTIONS, CONNECT, PATCH
 # TODO: Create conf for ipfw
 # TODO: FIX crash when asking for /video_s_
-# TODO: FIX validateMetadataKey so it actually does something
 
 def getURL(url, data, headers):
   print 'Requesting', url, data, headers
@@ -67,23 +66,6 @@ def getNonPlexOnlinePlugins():
   _nonPlexOnlinePlugins = plugins
   _nonPlexOnlinePluginsCacheTime = datetime.datetime.now()
   return plugins
-
-_metadataKeys = dict()
-_metadataKeysCacheTime = datetime.datetime(datetime.MINYEAR, 1, 1)
-def validateMetadataKey(key):
-  global _metadataKeys, _metadataKeysCacheTime
-  try: return _metadataKeys[key]
-  except KeyError: pass
-  elapsed = datetime.datetime.now() - _metadataKeysCacheTime
-  if elapsed.total_seconds() < 3600: raise KeyError
-  print 'Getting metadata keys'
-  base = 'http://127.0.0.1:32400/library/sections/'
-  for lib in etree.parse(base).xpath('/MediaContainer/Directory'):
-    v = lib.get('key') not in libBlacklist
-    for item in etree.parse(base + lib.get('key') + '/all').xpath('/MediaContainer/Video/@ratingKey'):
-      _metadataKeys[item] = v
-  _metadataKeysCacheTime = datetime.datetime.now()
-  return _metadataKeys[key]
   
 class PMSHandler(BaseHTTPRequestHandler):
   def getDataAndHeaders(self):
@@ -175,16 +157,14 @@ class PMSHandler(BaseHTTPRequestHandler):
     elif noManage and self.path.startswith('/manage'):
       forbid = True
     elif re.match(r'/library/metadata/.+', self.path):
-      try: v = validateMetadataKey(self.path.split('/')[-1])
-      except KeyError: err = True
-      else:
-        if not v: err = True
-        else: passthrough = True
+      out, headers = getEtree('http://127.0.0.1:32400' + self.path, *self.getDataAndHeaders())
+      contentRating = out.xpath('/MediaContainer/*/@contentRating')
+      if contentRating and viewerAge and contentRatings.minAgeForContentRating(contentRating[0]) > viewerAge:
+        err = True
     else:
       passthrough = True
     
     if passthrough:
-      print 'unknown path:' + self.path
       out, headers = getURL('http://127.0.0.1:32400' + self.path, *self.getDataAndHeaders())
     
     if err:
