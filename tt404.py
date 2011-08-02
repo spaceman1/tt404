@@ -19,9 +19,8 @@ kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbi
 # TODO: Create conf for ipfw
 # TODO: Allow install to be run at boot
 # TODO: Write Readme.markdown
-# TODO: Make library checking for metadata requests should look at lastUpdated before checking children.
-# sub TODO: should store items to disk for faster startup
-# sub TODO: should detach a thread periodically to check for new items
+# TODO: should store metadata IDs to disk for faster startup
+# TODO: should detach a thread periodically to check for new metadata items
 
 def getURL(url, data=None, headers=None):
   print 'Requesting', url, data, headers
@@ -57,17 +56,21 @@ def _bare_address_string(self):
 
 _metadataKeys = dict()
 _metadataKeysCacheTime = datetime.datetime(datetime.MINYEAR, 1, 1)
+_libCacheTimes = dict()
 def validateMetadataKey(key):
   global _metadataKeys, _metadataKeysCacheTime
-  try: return _metadataKeys[key]
+  try: return _metadataKeys[key][0]
   except KeyError: pass
   elapsed = datetime.datetime.now() - _metadataKeysCacheTime
   if elapsed.total_seconds() < 3600: raise KeyError
   print 'Getting metadata keys'
   for lib in getEtree('http://127.0.0.1:32400/library/sections/')[0].xpath('/MediaContainer/Directory'):
     libKey = lib.get('key')
-    v = libKey not in libBlacklist
-    _metadataKeys.update(getMetadataKeys('http://127.0.0.1:32400/library/sections/%s/all' % libKey, v))
+    updatedAt = lib.get('updatedAt')
+    if libKey not in _libCacheTimes or _libCacheTimes[libKey] != updatedAt:
+      _libCacheTimes[libKey] = updatedAt
+      v = libKey not in libBlacklist
+      _metadataKeys.update(getMetadataKeys('http://127.0.0.1:32400/library/sections/%s/all' % libKey, v))
   _metadataKeysCacheTime = datetime.datetime.now()
   return _metadataKeys[key]
 
@@ -75,9 +78,12 @@ def getMetadataKeys(path, v):
   metadataKeys = dict()
   for item in getEtree(path)[0].xpath('/MediaContainer/*'):
     key = item.get('ratingKey')
-    metadataKeys[key] = v
+    try: lastUpdate = metadataKeys[key][0]
+    except KeyError: lastUpdate = 0 
+    updatedAt = item.get('updatedAt')
+    metadataKeys[key] = (v, updatedAt)
     
-    if item.tag == 'Directory':
+    if item.tag == 'Directory' and updatedAt != lastUpdate:
       for subItem in getEtree('http://127.0.0.1:32400/library/metadata/' + key + '/children')[0].xpath('/MediaContainer/*'):
         try: metadataKeys[subItem.get('ratingKey')] = v
         except: pass
@@ -196,11 +202,13 @@ class PMSHandler(BaseHTTPRequestHandler):
     elif noManage and self.path.startswith('/manage'):
       forbid = True
     elif re.match(r'/library/metadata/.+', self.path):
-      content, headers = getEtree('http://127.0.0.1:32400' + self.path, *self.getDataAndHeaders())
-      contentRating = content.xpath('/MediaContainer/*/@contentRating')
-      if contentRating and viewerAge and contentRatings.minAgeForContentRating(contentRating[0]) > viewerAge or not validateMetadataKey(self.path.split('/')[-1]):
-        err = True
-      else: out = etree.tostring(content)
+      try: content, headers = getEtree('http://127.0.0.1:32400' + self.path, *self.getDataAndHeaders())
+      except: err = True
+      else:
+        contentRating = content.xpath('/MediaContainer/*/@contentRating')
+        if contentRating and viewerAge and contentRatings.minAgeForContentRating(contentRating[0]) > viewerAge or not validateMetadataKey(self.path.split('/')[-1]):
+          err = True
+        else: out = etree.tostring(content)
     else:
       passthrough = True
     
