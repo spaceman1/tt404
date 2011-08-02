@@ -1,5 +1,5 @@
 # The list of library sections to hide
-libBlacklist = ['some id', 'some other id']
+libBlacklist = ['9', 'some other id']
 # The list of plug-ins to hide
 pluginBlacklist = ['some id', 'some other id']
 # Completely block the web manager

@@ -1,6 +1,6 @@
 from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from  lxml import etree
-import urllib2
+import urllib, urllib2
 import re
 from itertools import ifilter
 import json
@@ -14,19 +14,22 @@ kPluginPaths =  kPluginShortPaths + map(lambda x: x+'/', kPluginShortPaths)
 kErrorBody = '<html><head><title>Not Found</title></head><body><h1>404 Not Found</h1></body></html>'
 kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbidden</h1></body></html>'
 
-# CHECK: Is there some way to access media using the part key?
+# Note: Not blocking */:/transcode requests to hidden items. Requirement for path makes brute-forcing unlikely.
 # TODO: Have this work with other HTTP verbs: HEAD, PUT, TRACE, OPTIONS, CONNECT, PATCH
 # TODO: Create conf for ipfw
-# TODO: FIX crash when asking for /video_s_
+# TODO: Allow install to be run at boot
+# TODO: Write Readme.markdown
+# TODO: Make library checking for metadata requests check sub-items
 
-def getURL(url, data, headers):
+def getURL(url, data=None, headers=None):
   print 'Requesting', url, data, headers
   headerDict = dict()
-  for k, v in headers:
-    headerDict[k] = v
+  if headers:
+    for k, v in headers:
+      headerDict[k] = v
     
   if not data: data = None
-  req = urllib2.Request(url, data, headerDict, headerDict['host'])
+  req = urllib2.Request(url, data, headerDict)
   f = urllib2.urlopen(req)
   content = f.read()
   
@@ -37,7 +40,7 @@ def getURL(url, data, headers):
     headers[k] = v[1:]
   return content, headers
 
-def getEtree(url, data, headers):
+def getEtree(url, data=None, headers=None):
   content, headers = getURL(url, data, headers)
   return etree.fromstring(content), headers
 
@@ -49,6 +52,26 @@ def _bare_address_string(self):
   # Thank you, thank you, thank you, Santoso Wijaya (santa4nt) http://bugs.python.org/issue6085
   host, port = self.client_address[:2]
   return '%s' % host
+
+_metadataKeys = dict()
+_metadataKeysCacheTime = datetime.datetime(datetime.MINYEAR, 1, 1)
+def validateMetadataKey(key):
+  global _metadataKeys, _metadataKeysCacheTime
+  try: return _metadataKeys[key]
+  except KeyError: pass
+  elapsed = datetime.datetime.now() - _metadataKeysCacheTime
+  if elapsed.total_seconds() < 3600: raise KeyError
+  print 'Getting metadata keys'
+  base = 'http://127.0.0.1:32400/library/sections/'
+  
+  libraries, ignore = getEtree(base)
+  for lib in libraries.xpath('/MediaContainer/Directory'):
+    v = lib.get('key') not in libBlacklist
+    library, ignore = getEtree(base + lib.get('key') + '/all')
+    for item in library.xpath('/MediaContainer/Video/@ratingKey'):
+      _metadataKeys[item] = v
+  _metadataKeysCacheTime = datetime.datetime.now()
+  return _metadataKeys[key]
 
 _nonPlexOnlinePlugins = list()
 _nonPlexOnlinePluginsCacheTime = datetime.datetime(datetime.MINYEAR, 1, 1)
@@ -161,10 +184,11 @@ class PMSHandler(BaseHTTPRequestHandler):
     elif noManage and self.path.startswith('/manage'):
       forbid = True
     elif re.match(r'/library/metadata/.+', self.path):
-      out, headers = getEtree('http://127.0.0.1:32400' + self.path, *self.getDataAndHeaders())
-      contentRating = out.xpath('/MediaContainer/*/@contentRating')
-      if contentRating and viewerAge and contentRatings.minAgeForContentRating(contentRating[0]) > viewerAge:
+      content, headers = getEtree('http://127.0.0.1:32400' + self.path, *self.getDataAndHeaders())
+      contentRating = content.xpath('/MediaContainer/*/@contentRating')
+      if contentRating and viewerAge and contentRatings.minAgeForContentRating(contentRating[0]) > viewerAge or not validateMetadataKey(self.path.split('/')[-1]):
         err = True
+      else: out = etree.tostring(content)
     else:
       passthrough = True
     
