@@ -19,7 +19,9 @@ kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbi
 # TODO: Create conf for ipfw
 # TODO: Allow install to be run at boot
 # TODO: Write Readme.markdown
-# TODO: Make library checking for metadata requests check sub-items
+# TODO: Make library checking for metadata requests should look at lastUpdated before checking children.
+# sub TODO: should store items to disk for faster startup
+# sub TODO: should detach a thread periodically to check for new items
 
 def getURL(url, data=None, headers=None):
   print 'Requesting', url, data, headers
@@ -62,16 +64,26 @@ def validateMetadataKey(key):
   elapsed = datetime.datetime.now() - _metadataKeysCacheTime
   if elapsed.total_seconds() < 3600: raise KeyError
   print 'Getting metadata keys'
-  base = 'http://127.0.0.1:32400/library/sections/'
-  
-  libraries, ignore = getEtree(base)
-  for lib in libraries.xpath('/MediaContainer/Directory'):
-    v = lib.get('key') not in libBlacklist
-    library, ignore = getEtree(base + lib.get('key') + '/all')
-    for item in library.xpath('/MediaContainer/Video/@ratingKey'):
-      _metadataKeys[item] = v
+  for lib in getEtree('http://127.0.0.1:32400/library/sections/')[0].xpath('/MediaContainer/Directory'):
+    libKey = lib.get('key')
+    v = libKey not in libBlacklist
+    _metadataKeys.update(getMetadataKeys('http://127.0.0.1:32400/library/sections/%s/all' % libKey, v))
   _metadataKeysCacheTime = datetime.datetime.now()
   return _metadataKeys[key]
+
+def getMetadataKeys(path, v):
+  metadataKeys = dict()
+  for item in getEtree(path)[0].xpath('/MediaContainer/*'):
+    key = item.get('ratingKey')
+    metadataKeys[key] = v
+    
+    if item.tag == 'Directory':
+      for subItem in getEtree('http://127.0.0.1:32400/library/metadata/' + key + '/children')[0].xpath('/MediaContainer/*'):
+        try: metadataKeys[subItem.get('ratingKey')] = v
+        except: pass
+      for subItem in getEtree('http://127.0.0.1:32400/library/metadata/' + key + '/allLeaves')[0].xpath('/MediaContainer/*'):
+        metadataKeys[subItem.get('ratingKey')] = v
+  return metadataKeys
 
 _nonPlexOnlinePlugins = list()
 _nonPlexOnlinePluginsCacheTime = datetime.datetime(datetime.MINYEAR, 1, 1)
