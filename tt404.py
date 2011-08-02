@@ -8,6 +8,7 @@ import base64
 from conf import libBlacklist, pluginBlacklist, noManage, noBrowse, plexOnlineOnly, viewerAge
 import datetime
 import contentRatings
+import pickle
 
 kPluginShortPaths = ['/music', '/photos', '/video', '/applications']
 kPluginPaths =  kPluginShortPaths + map(lambda x: x+'/', kPluginShortPaths)
@@ -19,11 +20,10 @@ kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbi
 # TODO: Create conf for ipfw
 # TODO: Allow install to be run at boot
 # TODO: Write Readme.markdown
-# TODO: should store metadata IDs to disk for faster startup
 # TODO: should detach a thread periodically to check for new metadata items
 
 def getURL(url, data=None, headers=None):
-  print 'Requesting', url, data, headers
+  # print 'Requesting', url, data, headers
   headerDict = dict()
   if headers:
     for k, v in headers:
@@ -54,15 +54,11 @@ def _bare_address_string(self):
   host, port = self.client_address[:2]
   return '%s' % host
 
-_metadataKeys = dict()
-_metadataKeysCacheTime = datetime.datetime(datetime.MINYEAR, 1, 1)
-_libCacheTimes = dict()
+
 def validateMetadataKey(key):
-  global _metadataKeys, _metadataKeysCacheTime
+  global _metadataKeys, _libCacheTimes
   try: return _metadataKeys[key][0]
   except KeyError: pass
-  elapsed = datetime.datetime.now() - _metadataKeysCacheTime
-  if elapsed.total_seconds() < 3600: raise KeyError
   print 'Getting metadata keys'
   for lib in getEtree('http://127.0.0.1:32400/library/sections/')[0].xpath('/MediaContainer/Directory'):
     libKey = lib.get('key')
@@ -72,6 +68,9 @@ def validateMetadataKey(key):
       v = libKey not in libBlacklist
       _metadataKeys.update(getMetadataKeys('http://127.0.0.1:32400/library/sections/%s/all' % libKey, v))
   _metadataKeysCacheTime = datetime.datetime.now()
+  print 'Saving metadata info'
+  with open('cache', 'w') as f:
+    pickle.dump({'metadataKeys': _metadataKeys, 'libCacheTimes': _libCacheTimes}, f)
   return _metadataKeys[key]
 
 def getMetadataKeys(path, v):
@@ -241,6 +240,18 @@ class PMSHandler(BaseHTTPRequestHandler):
 
 
 def main():
+  global _metadataKeys, _libCacheTimes
+  try:
+    with open('cache') as f:
+      savedInfo = pickle.load(f)
+    _libCacheTimes = savedInfo['libCacheTimes']
+    _metadataKeys = savedInfo['metadataKeys']
+  except IOError:
+    print 'Loading library info for the first time. This might take a while'
+    _metadataKeys = dict()
+    _libCacheTimes = dict()    
+    try: validateMetadataKey(-1)
+    except:pass
   BaseHTTPRequestHandler.address_string = _bare_address_string # see comment above
   print 'starting server'
   server = HTTPServer(('127.0.0.1', 32404), PMSHandler)
