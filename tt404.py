@@ -17,7 +17,6 @@ kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbi
 
 # Note: Not blocking */:/transcode requests to hidden items. Requirement for path makes brute-forcing unlikely.
 # TODO: Have this work with other HTTP verbs: HEAD, PUT, TRACE, OPTIONS, CONNECT, PATCH
-# TODO: Create conf for ipfw
 # TODO: Allow install to be run at boot
 # TODO: Write Readme.markdown
 # TODO: should detach a thread periodically to check for new metadata items

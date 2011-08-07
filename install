@@ -1,11 +1,19 @@
 #!/bin/zsh
 if test `id -u` != "0"; then
-  echo "This needs to be called as root"
+  echo "This must be run as root"
   exit 1
 fi
 
 if command which -s pfctl; then
   pfctl -f pf.conf
+  echo "PF configuration installed"
 else
   echo "PF not installed"
+  if command which -s ipfw; then
+    ipfw -q add 10 divert 32404 ip from not me to me 32400
+    echo "ipfw configuration installed"
+  else
+    echo "ipfw not installed"
+    echo "No supported firewalls found. Aborting."
+  fi
 fi
