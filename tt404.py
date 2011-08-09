@@ -15,7 +15,9 @@ kPluginPaths =  kPluginShortPaths + map(lambda x: x+'/', kPluginShortPaths)
 kErrorBody = '<html><head><title>Not Found</title></head><body><h1>404 Not Found</h1></body></html>'
 kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbidden</h1></body></html>'
 
-# Note: Not blocking */:/transcode requests to hidden items. Requirement for path makes brute-forcing unlikely.
+# TODO: Block */:/transcode requests to paths matching hidden libraries.
+# TODO: Block */:/transcode requests to identifiers matching hidden plug-ins.
+# TODO: Track library section for ratingKey so libraries can be white/black-listed later
 # TODO: Have this work with other HTTP verbs: HEAD, PUT, TRACE, OPTIONS, CONNECT, PATCH
 # TODO: Allow install to be run at boot
 # TODO: Write Readme.markdown
@@ -167,7 +169,7 @@ class PMSHandler(BaseHTTPRequestHandler):
   
   def handleRequest(self):
     err = forbid = passthrough = False
-
+    
     if self.path == '/library/sections' or self.path == '/library/sections/':
       out, headers = self.stripSections(self.path, 'lib')
     elif self.path.startswith('/system/library/sections'):
@@ -182,6 +184,17 @@ class PMSHandler(BaseHTTPRequestHandler):
     elif re.match(r'/system/plugins/[^/]+[/]?$', self.path):
       kind = 'pluginSystemOnlineOnly' if plexOnlineOnly else 'pluginSystem'
       out, headers = self.stripSections(self.path, kind)
+    elif re.match(r'/[^/]+/:/transcode', self.path):
+      try: ratingKey = self.path.split('ratingKey=')[1].split('&')[0]
+      except IndexError:
+        print 'Transcode request lacking ratingKey ', self.path
+        passthrough = True
+      else:
+        try: contentRating = etree.parse('http://127.0.0.1:32400/library/metadata/' + ratingKey).xpath('/MediaContainer/*/@contentRating')
+        except: err = True
+        else:
+          if contentRating and viewerAge and contentRatings.minAgeForContentRating(contentRating[0]) > viewerAge or not validateMetadataKey(ratingKey): err = True
+          else: passthrough = True
     elif any(ifilter(lambda p: self.path.startswith(p), kPluginShortPaths)):
       pathComponents = self.path.split('/')
       if len(pathComponents) < 3:
