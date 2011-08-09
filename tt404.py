@@ -9,13 +9,13 @@ from conf import libBlacklist, pluginBlacklist, noManage, noBrowse, plexOnlineOn
 import datetime
 import contentRatings
 import pickle
+import urlparse
 
 kPluginShortPaths = ['/music', '/photos', '/video', '/applications']
 kPluginPaths =  kPluginShortPaths + map(lambda x: x+'/', kPluginShortPaths)
 kErrorBody = '<html><head><title>Not Found</title></head><body><h1>404 Not Found</h1></body></html>'
 kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbidden</h1></body></html>'
 
-# TODO: Block */:/transcode requests to paths matching hidden libraries.
 # TODO: Block */:/transcode requests to identifiers matching hidden plug-ins.
 # TODO: Track library section for ratingKey so libraries can be white/black-listed later
 # TODO: Have this work with other HTTP verbs: HEAD, PUT, TRACE, OPTIONS, CONNECT, PATCH
@@ -149,15 +149,17 @@ class PMSHandler(BaseHTTPRequestHandler):
     outer += 'size="%i">\n' % itemCount
     return outer + out + '</MediaContainer>', headers
   
-  def stripFolders(self, path):
-    sections, headers = getEtree('http://127.0.0.1:32400/library/sections', *self.getDataAndHeaders())
-    del headers
+  def getBlacklistedFolders(self):
     folderBlacklist = list()
+    sections = etree.parse('http://127.0.0.1:32400/library/sections')
     for item in sections.xpath('/MediaContainer/Directory'):
       if item.get('key') in libBlacklist:
         for location in item.xpath('./Location'):
           folderBlacklist.append(location.get('path'))
-    
+    return folderBlacklist
+  
+  def stripFolders(self, path):
+    folderBlacklist = self.getBlacklistedFolders()
     out = ''
     itemCount = 0
     content, headers = etree.parse('http://127.0.0.1:32400' + path, *self.getDataAndHeaders())
@@ -188,7 +190,11 @@ class PMSHandler(BaseHTTPRequestHandler):
       try: ratingKey = self.path.split('ratingKey=')[1].split('&')[0]
       except IndexError:
         print 'Transcode request lacking ratingKey ', self.path
-        passthrough = True
+        try: url = urllib.unquote(self.path.split('url=')[1].split('&')[0])
+        except IndexError: err = True
+        else:
+          if urlparse.urlparse(url).path in self.getBlacklistedFolders(): err = True
+          else: passthrough = True
       else:
         try: contentRating = etree.parse('http://127.0.0.1:32400/library/metadata/' + ratingKey).xpath('/MediaContainer/*/@contentRating')
         except: err = True
