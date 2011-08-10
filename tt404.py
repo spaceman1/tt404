@@ -10,18 +10,22 @@ import datetime
 import contentRatings
 import pickle
 import urlparse
+import threading
+import time
 
 kPluginShortPaths = ['/music', '/photos', '/video', '/applications']
 kPluginPaths =  kPluginShortPaths + map(lambda x: x+'/', kPluginShortPaths)
 kErrorBody = '<html><head><title>Not Found</title></head><body><h1>404 Not Found</h1></body></html>'
 kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbidden</h1></body></html>'
 
-# TODO: Block */:/transcode requests to identifiers matching hidden plug-ins.
+die = False
+
 # TODO: Track library section for ratingKey so libraries can be white/black-listed later
-# TODO: Have this work with other HTTP verbs: HEAD, PUT, TRACE, OPTIONS, CONNECT, PATCH
 # TODO: Allow install to be run at boot
 # TODO: Write Readme.markdown
-# TODO: should detach a thread periodically to check for new metadata items
+# TODO: Catch and pass on error codes
+# TODO: Block */:/transcode requests to identifiers matching hidden plug-ins.
+# TODO: Have this work with other HTTP verbs: HEAD, PUT, TRACE, OPTIONS, CONNECT, PATCH
 
 def getURL(url, data=None, headers=None):
   # print 'Requesting', url, data, headers
@@ -68,10 +72,11 @@ def validateMetadataKey(key):
       _libCacheTimes[libKey] = updatedAt
       v = libKey not in libBlacklist
       _metadataKeys.update(getMetadataKeys('http://127.0.0.1:32400/library/sections/%s/all' % libKey, v))
+    print 'Finished loading ', lib.get('title')
   _metadataKeysCacheTime = datetime.datetime.now()
-  print 'Saving metadata info'
   with open('cache', 'w') as f:
     pickle.dump({'metadataKeys': _metadataKeys, 'libCacheTimes': _libCacheTimes}, f)
+  print 'Saved metadata info'
   return _metadataKeys[key]
 
 def getMetadataKeys(path, v):
@@ -256,9 +261,16 @@ class PMSHandler(BaseHTTPRequestHandler):
   def do_POST(self):
     self.handleRequest()
 
+def updater():
+  global die
+  while not die:
+    try: validateMetadataKey(-1)
+    except:pass
+    lastUpdate = datetime.datetime.now()
+    while not die and (datetime.datetime.now() - lastUpdate).total_seconds() < 600: pass
 
 def main():
-  global _metadataKeys, _libCacheTimes
+  global _metadataKeys, _libCacheTimes, die
   try:
     with open('cache') as f:
       savedInfo = pickle.load(f)
@@ -270,6 +282,8 @@ def main():
     _libCacheTimes = dict()    
     try: validateMetadataKey(-1)
     except:pass
+  threading.Thread(target=updater).start()
+  
   BaseHTTPRequestHandler.address_string = _bare_address_string # see comment above
   print 'starting server'
   server = HTTPServer(('127.0.0.1', 32404), PMSHandler)
@@ -279,6 +293,7 @@ def main():
   except KeyboardInterrupt:
     print 'Shutting down'
     server.socket.close()
+    die = True
 
 if __name__ == '__main__':
   main()
