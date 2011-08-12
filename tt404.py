@@ -13,6 +13,8 @@ import urlparse
 import threading
 import time
 
+from __future__ import with_statement
+
 kPluginShortPaths = ['/music', '/photos', '/video', '/applications']
 kPluginPaths =  kPluginShortPaths + map(lambda x: x+'/', kPluginShortPaths)
 kErrorBody = '<html><head><title>Not Found</title></head><body><h1>404 Not Found</h1></body></html>'
@@ -22,7 +24,7 @@ die = False
 
 # TODO: Track library section for ratingKey so libraries can be white/black-listed later
 # TODO: Allow install to be run at boot
-# TODO: Write Readme.markdown
+# TODO: Examples of how to whitelist certain devices
 # TODO: Catch and pass on error codes
 # TODO: Block */:/transcode requests to identifiers matching hidden plug-ins.
 # TODO: Have this work with other HTTP verbs: HEAD, PUT, TRACE, OPTIONS, CONNECT, PATCH
