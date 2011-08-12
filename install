@@ -5,7 +5,8 @@ if test `id -u` != "0"; then
 fi
 
 if command which -s pfctl; then
-  pfctl -f pf.conf
+	cp ./pf.conf /etc/tt404pf.conf
+	launchctl load pf.plist
   echo "PF configuration installed"
 else
   echo "PF not installed"
