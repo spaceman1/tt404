@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+   <key>Enabled</key>
+   <true/>
+   <key>Label</key>
+   <string>com.softwarefromspace.tt404ipfw</string>
+   <key>WorkingDirectory</key>
+   <string>/var/run</string>
+   <key>UserName</key>
+   <string>root</string>
+   <key>GroupName</key>
+   <string>wheel</string>
+   <key>Program</key>
+   <string>/sbin/ipfw</string>
+   <key>ProgramArguments</key>
+   <array>
+      <string>ipfw</string>
+      <string>-q</string>
+      <string>add</string>
+      <string>10</string>
+      <string>divert</string>
+      <string>32404</string>
+      <string>ip</string>
+      <string>from</string>
+      <string>not</string>
+      <string>me</string>
+      <string>to</string>
+      <string>me</string>
+      <string>32400</string>
+   </array>
+   <key>RunAtLoad</key>
+   <true/>
+</dict>
+</plist>
+

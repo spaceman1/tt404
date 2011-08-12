@@ -6,12 +6,12 @@ fi
 
 if command which -s pfctl; then
 	cp ./pf.conf /etc/tt404pf.conf
-	launchctl load pf.plist
+	launchctl load -w pf.plist
   echo "PF configuration installed"
 else
   echo "PF not installed"
   if command which -s ipfw; then
-    ipfw -q add 10 divert 32404 ip from not me to me 32400
+    launchctl load -w ipfw.plist
     echo "ipfw configuration installed"
   else
     echo "ipfw not installed"
