@@ -1,7 +1,7 @@
 tt404
 ===============
 
-Privacy/Content-Filtering proxy for Plex Media Server
+Privacy/Content-Filtering firewall for Plex Media Server
 
 Before you start
 ----------------
@@ -25,6 +25,16 @@ Now edit conf.py in your favourite text editor
 Restart the server
 	./tt404
 
-TO-DO
------
-Plenty, see the source files for a list.
+Compatibility
+-------------
+Required: python and the lxml module.
+
+Recommended: PF or ipfw. If you're running the media server on OS X you're already covered.
+
+If your system does not include either of those firewalls: install a firewall that can handle redirection and configure it manually. Skip the ./install step.
+
+Known Issues
+------------
+Plex for iOS seems to route around the firewall. More info as it becomes available.
+
+This is an early beta. Plex is updated frequently. Some holes might still exist or be opened in future versions of Plex. If you find one please message me with details so I can plug it.
