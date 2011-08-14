@@ -10,7 +10,9 @@ Before you start
 Usage
 -----
 cd to the tt404 directory
+
     ./install
+
     ./tt404
 
 The server is up and running but it doesn't do much yet.
