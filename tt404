@@ -23,7 +23,6 @@ kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbi
 
 die = False
 
-# TODO: Track library section for ratingKey so libraries can be white/black-listed later
 # TODO: Examples of how to whitelist certain devices
 # TODO: Catch and pass on error codes
 # TODO: Block */:/transcode requests to identifiers matching hidden plug-ins.
@@ -61,24 +60,27 @@ def _bare_address_string(self):
   host, port = self.client_address[:2]
   return '%s' % host
 
+def updateCache():
+	global _metadataKeys, _libCacheTimes
+	print 'Getting metadata keys'
+	for lib in getEtree('http://127.0.0.1:32400/library/sections/')[0].xpath('/MediaContainer/Directory'):
+	  libKey = lib.get('key')
+	  updatedAt = lib.get('updatedAt')
+	  if libKey not in _libCacheTimes or _libCacheTimes[libKey] != updatedAt:
+	    _libCacheTimes[libKey] = updatedAt
+	    v = libKey
+	    _metadataKeys.update(getMetadataKeys('http://127.0.0.1:32400/library/sections/%s/all' % libKey, v))
+	  print 'Finished loading', lib.get('title')
+	_metadataKeysCacheTime = datetime.datetime.now()
+	with open('cache', 'w') as f:
+	  pickle.dump({'metadataKeys': _metadataKeys, 'libCacheTimes': _libCacheTimes}, f)
+	print 'Saved metadata info'
 
 def validateMetadataKey(key):
   global _metadataKeys, _libCacheTimes
-  try: return _metadataKeys[key][0]
+  try: return _metadataKeys[key][0] not in libBlacklist
   except KeyError: pass
-  print 'Getting metadata keys'
-  for lib in getEtree('http://127.0.0.1:32400/library/sections/')[0].xpath('/MediaContainer/Directory'):
-    libKey = lib.get('key')
-    updatedAt = lib.get('updatedAt')
-    if libKey not in _libCacheTimes or _libCacheTimes[libKey] != updatedAt:
-      _libCacheTimes[libKey] = updatedAt
-      v = libKey not in libBlacklist
-      _metadataKeys.update(getMetadataKeys('http://127.0.0.1:32400/library/sections/%s/all' % libKey, v))
-    print 'Finished loading ', lib.get('title')
-  _metadataKeysCacheTime = datetime.datetime.now()
-  with open('cache', 'w') as f:
-    pickle.dump({'metadataKeys': _metadataKeys, 'libCacheTimes': _libCacheTimes}, f)
-  print 'Saved metadata info'
+  updateCache()  
   return _metadataKeys[key]
 
 def getMetadataKeys(path, v):
@@ -266,8 +268,7 @@ class PMSHandler(BaseHTTPRequestHandler):
 def updater():
   global die
   while not die:
-    try: validateMetadataKey(-1)
-    except:pass
+    updateCache()
     lastUpdate = datetime.datetime.now()
     while not die and (datetime.datetime.now() - lastUpdate).total_seconds() < 600: pass
 
@@ -282,8 +283,7 @@ def main():
     print 'Loading library info for the first time. This might take a while'
     _metadataKeys = dict()
     _libCacheTimes = dict()    
-    try: validateMetadataKey(-1)
-    except:pass
+    updateCache()
   threading.Thread(target=updater).start()
   
   BaseHTTPRequestHandler.address_string = _bare_address_string # see comment above
