@@ -11,7 +11,7 @@ Usage
 -----
 cd to the tt404 directory
 	./install
-	python tt404.py
+	./tt404
 
 The server is up and running but it doesn't do much yet.
 
@@ -23,7 +23,7 @@ See the list of library and plug-in identifiers with:
 Now edit conf.py in your favourite text editor
 
 Restart the server
-	python tt404.py
+	./tt404
 
 TO-DO
 -----

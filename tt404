@@ -1,3 +1,6 @@
+#!/usr/bin/python
+from __future__ import with_statement
+
 from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from  lxml import etree
 import urllib, urllib2
@@ -13,8 +16,6 @@ import urlparse
 import threading
 import time
 
-from __future__ import with_statement
-
 kPluginShortPaths = ['/music', '/photos', '/video', '/applications']
 kPluginPaths =  kPluginShortPaths + map(lambda x: x+'/', kPluginShortPaths)
 kErrorBody = '<html><head><title>Not Found</title></head><body><h1>404 Not Found</h1></body></html>'
@@ -23,7 +24,6 @@ kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbi
 die = False
 
 # TODO: Track library section for ratingKey so libraries can be white/black-listed later
-# TODO: Allow install to be run at boot
 # TODO: Examples of how to whitelist certain devices
 # TODO: Catch and pass on error codes
 # TODO: Block */:/transcode requests to identifiers matching hidden plug-ins.
