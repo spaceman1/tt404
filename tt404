@@ -8,7 +8,7 @@ import re
 from itertools import ifilter
 import json
 import base64
-from conf import libBlacklist, pluginBlacklist, noManage, noBrowse, plexOnlineOnly, viewerAge
+from conf import *
 import datetime
 import contentRatings
 import pickle
@@ -20,6 +20,7 @@ kPluginShortPaths = ['/music', '/photos', '/video', '/applications']
 kPluginPaths =  kPluginShortPaths + map(lambda x: x+'/', kPluginShortPaths)
 kErrorBody = '<html><head><title>Not Found</title></head><body><h1>404 Not Found</h1></body></html>'
 kForbiddenBody = '<html><head><title>Forbidden</title></head><body><h1>403 Forbidden</h1></body></html>'
+kBase = 'http://127.0.0.1:32400'
 
 die = False
 
@@ -27,6 +28,8 @@ die = False
 # TODO: Catch and pass on error codes
 # TODO: Block */:/transcode requests to identifiers matching hidden plug-ins.
 # TODO: Have this work with other HTTP verbs: HEAD, PUT, TRACE, OPTIONS, CONNECT, PATCH
+# TODO: Add setting for access rights to plug-in prefs
+# TODO: Support for port 3000 stuff
 
 def getURL(url, data=None, headers=None):
   # print 'Requesting', url, data, headers
@@ -63,13 +66,13 @@ def _bare_address_string(self):
 def updateCache():
 	global _metadataKeys, _libCacheTimes
 	print 'Getting metadata keys'
-	for lib in getEtree('http://127.0.0.1:32400/library/sections/')[0].xpath('/MediaContainer/Directory'):
+	for lib in getEtree(kBase + '/library/sections/')[0].xpath('/MediaContainer/Directory'):
 	  libKey = lib.get('key')
 	  updatedAt = lib.get('updatedAt')
 	  if libKey not in _libCacheTimes or _libCacheTimes[libKey] != updatedAt:
 	    _libCacheTimes[libKey] = updatedAt
 	    v = libKey
-	    _metadataKeys.update(getMetadataKeys('http://127.0.0.1:32400/library/sections/%s/all' % libKey, v))
+	    _metadataKeys.update(getMetadataKeys(kBase + '/library/sections/%s/all' % libKey, v))
 	  print 'Finished loading', lib.get('title')
 	_metadataKeysCacheTime = datetime.datetime.now()
 	with open('cache', 'w') as f:
@@ -93,10 +96,10 @@ def getMetadataKeys(path, v):
     metadataKeys[key] = (v, updatedAt)
     
     if item.tag == 'Directory' and updatedAt != lastUpdate:
-      for subItem in getEtree('http://127.0.0.1:32400/library/metadata/' + key + '/children')[0].xpath('/MediaContainer/*'):
+      for subItem in getEtree(kBase + '/library/metadata/' + key + '/children')[0].xpath('/MediaContainer/*'):
         try: metadataKeys[subItem.get('ratingKey')] = v
         except: pass
-      for subItem in getEtree('http://127.0.0.1:32400/library/metadata/' + key + '/allLeaves')[0].xpath('/MediaContainer/*'):
+      for subItem in getEtree(kBase + '/library/metadata/' + key + '/allLeaves')[0].xpath('/MediaContainer/*'):
         metadataKeys[subItem.get('ratingKey')] = v
   return metadataKeys
 
@@ -111,7 +114,7 @@ def getNonPlexOnlinePlugins():
   for item in json.load(urllib.urlopen('http://plugins.plexapp.com/apps/all.json')):
     identifiers.append(item['app']['identifier'])
   plugins = list()
-  for item in etree.parse('http://127.0.0.1:32400/system/plugins/all').xpath('/MediaContainer/Directory'):
+  for item in etree.parse(kBase + '/system/plugins/all').xpath('/MediaContainer/Directory'):
     if item.get('identifier') not in identifiers: plugins.append(base64.b64decode(item.get('key') + '==').split('/')[-1])
   _nonPlexOnlinePlugins = plugins
   _nonPlexOnlinePluginsCacheTime = datetime.datetime.now()
@@ -145,7 +148,7 @@ class PMSHandler(BaseHTTPRequestHandler):
       print 'unknown item type ' + itemType
       shouldStrip = lambda item:False
     
-    original, headers = getEtree('http://127.0.0.1:32400' + path, *self.getDataAndHeaders())
+    original, headers = getEtree(kBase + path, *self.getDataAndHeaders())
     for item in original.xpath('/MediaContainer/*'):
       if not shouldStrip(item):
         out += etree.tostring(item)
@@ -160,7 +163,7 @@ class PMSHandler(BaseHTTPRequestHandler):
   
   def getBlacklistedFolders(self):
     folderBlacklist = list()
-    sections = etree.parse('http://127.0.0.1:32400/library/sections')
+    sections = etree.parse(kBase + '/library/sections')
     for item in sections.xpath('/MediaContainer/Directory'):
       if item.get('key') in libBlacklist:
         for location in item.xpath('./Location'):
@@ -171,93 +174,99 @@ class PMSHandler(BaseHTTPRequestHandler):
     folderBlacklist = self.getBlacklistedFolders()
     out = ''
     itemCount = 0
-    content, headers = etree.parse('http://127.0.0.1:32400' + path, *self.getDataAndHeaders())
+    content, headers = etree.parse(kBase + path, *self.getDataAndHeaders())
     for item in content.xpath('/MediaContainer/Path'):
       if item.get('path') not in folderBlacklist:
         out += etree.tostring(item)
         itemCount += 1
     return '<?xml version="1.0" encoding="UTF-8"?>\n<MediaContainer size="%i">\n' % itemCount + out + '</MediaContainer>', headers
-  
-  def handleRequest(self):
-    err = forbid = passthrough = False
-    
-    if self.path == '/library/sections' or self.path == '/library/sections/':
-      out, headers = self.stripSections(self.path, 'lib')
-    elif self.path.startswith('/system/library/sections'):
-      out, headers = self.stripSections(self.path, 'libSystem')
-    elif self.path.startswith('/library/sections/'):
-      if self.path.split('/')[3] in libBlacklist: err = True
-      elif re.match(r'/library/sections/[^/]+/.+', self.path): out, headers = self.stripSections(self.path, 'libMenu')
-      else: passthrough = True
-    elif self.path in kPluginPaths:
-      kind = 'pluginOnlineOnly' if plexOnlineOnly else 'plugin'
-      out, headers = self.stripSections(self.path, kind)
-    elif re.match(r'/system/plugins/[^/]+[/]?$', self.path):
-      kind = 'pluginSystemOnlineOnly' if plexOnlineOnly else 'pluginSystem'
-      out, headers = self.stripSections(self.path, kind)
-    elif re.match(r'/[^/]+/:/transcode', self.path):
-      try: ratingKey = self.path.split('ratingKey=')[1].split('&')[0]
-      except IndexError:
-        print 'Transcode request lacking ratingKey ', self.path
-        try: url = urllib.unquote(self.path.split('url=')[1].split('&')[0])
-        except IndexError: err = True
-        else:
-          if urlparse.urlparse(url).path in self.getBlacklistedFolders(): err = True
-          else: passthrough = True
-      else:
-        try: contentRating = etree.parse('http://127.0.0.1:32400/library/metadata/' + ratingKey).xpath('/MediaContainer/*/@contentRating')
-        except: err = True
-        else:
-          if contentRating and viewerAge and contentRatings.minAgeForContentRating(contentRating[0]) > viewerAge or not validateMetadataKey(ratingKey): err = True
-          else: passthrough = True
-    elif any(ifilter(lambda p: self.path.startswith(p), kPluginShortPaths)):
-      pathComponents = self.path.split('/')
-      if len(pathComponents) < 3:
-        err = True
-      else:
-        pluginName = pathComponents[2]
-        if plexOnlineOnly and pluginName in getNonPlexOnlinePlugins() or pluginName in pluginBlacklist:
-          err = True
-        else:
-          passthrough = True
-    elif self.path.startswith('/services/browse'):
-      if noBrowse:
-        forbid = True
-      else:
-        out, headers = self.stripFolders(self.path)
-    elif noManage and self.path.startswith('/manage'):
-      forbid = True
-    elif re.match(r'/library/metadata/.+', self.path):
-      try: content, headers = getEtree('http://127.0.0.1:32400' + self.path, *self.getDataAndHeaders())
-      except: err = True
-      else:
-        contentRating = content.xpath('/MediaContainer/*/@contentRating')
-        if contentRating and viewerAge and contentRatings.minAgeForContentRating(contentRating[0]) > viewerAge or not validateMetadataKey(self.path.split('/')[-1]):
-          err = True
-        else: out = etree.tostring(content)
-    else:
-      passthrough = True
-    
-    if passthrough:
-      out, headers = getURL('http://127.0.0.1:32400' + self.path, *self.getDataAndHeaders())
-    
-    if err:
-      self.send_response(404, 'Not found')
-      headers = {'Content-Type': 'text/html'}
-      out = kErrorBody
-    elif forbid:
-      self.send_response(403, 'Forbidden')
-      headers = {'Content-Type': 'text/html'}
-      out = kForbiddenBody
-    else:
-      self.send_response(200)
-    
+
+  def sendHeaders(self, headers, length):
     for k, v in headers.iteritems():
       if k != 'Content-Length': self.send_header(k, v)
-      else: self.send_header('Content-Length', len(out))
+      else: self.send_header('Content-Length', length)
     self.end_headers()
+  
+  def sendErr(self):
+    self.send_response(404, 'Not found')
+    self.sendHeaders({'Content-Type': 'text/html'}, len(kErrorBody))
+    self.wfile.write(kErrorBody)
+  
+  def sendForbid(self):
+    self.send_response(403, 'Forbidden')
+    self.sendHeaders({'Content-Type': 'text/html'}, len(kForbiddenBody))
+    self.wfile.write(kForbiddenBody)
+  
+  def sendPassthrough(self):
+    out, headers = getURL(kBase + self.path, *self.getDataAndHeaders())
+    self.send_response(200)
+    self.sendHeaders(headers, len(out))
+  
+  def sendResponse(self, (body, headers)):
+    self.send_response(200)
+    self.sendHeaders(headers, len(body))
+    self.wfile.write(body)
     
-    self.wfile.write(out)
+  def handleRequest(self):
+    if self.path == '/library/sections' or self.path == '/library/sections/':
+      return self.sendResponse(self.stripSections(self.path, 'lib'))
+    
+    if self.path.startswith('/system/library/sections'):
+      return self.sendResponse(self.stripSections(self.path, 'libSystem'))
+    
+    if self.path.startswith('/library/sections/'):
+      if self.path.split('/')[3] in libBlacklist: return self.sendErr()
+      elif re.match(r'/library/sections/[^/]+/.+', self.path): return self.sendResponse(self.stripSections(self.path, 'libMenu'))
+      else: return self.sendPassthrough()
+    
+    if self.path in kPluginPaths:
+      kind = 'pluginOnlineOnly' if plexOnlineOnly else 'plugin'
+      return self.sendResponse(self.stripSections(self.path, kind))
+    
+    if re.match(r'/system/plugins/[^/]+[/]?$', self.path):
+      kind = 'pluginSystemOnlineOnly' if plexOnlineOnly else 'pluginSystem'
+      return self.sendResponse(self.stripSections(self.path, kind))
+    
+    if re.match(r'/[^/]+/:/transcode', self.path):
+      try: ratingKey = self.path.split('ratingKey=')[1].split('&')[0]
+      except IndexError:
+        print 'Transcode request lacking ratingKey', self.path
+        try: url = urllib.unquote(self.path.split('url=')[1].split('&')[0])
+        except IndexError: return self.sendErr()
+        
+        if urlparse.urlparse(url).path in self.getBlacklistedFolders(): return self.sendErr()
+        else: return self.sendPassthrough()
+      
+      try: contentRating = etree.parse(kBase + '/library/metadata/' + ratingKey).xpath('/MediaContainer/*/@contentRating')
+      except: return self.sendErr()
+      
+      if contentRating and viewerAge and contentRatings.minAgeForContentRating(contentRating[0]) > viewerAge or not validateMetadataKey(ratingKey): return self.sendErr()
+      else: return self.sendPassthrough()
+    
+    if any(ifilter(lambda p: self.path.startswith(p), kPluginShortPaths)):
+      pathComponents = self.path.split('/')
+      if len(pathComponents) < 3: return self.sendErr()
+
+      pluginName = pathComponents[2]
+      if plexOnlineOnly and pluginName in getNonPlexOnlinePlugins() or pluginName in pluginBlacklist: return self.sendErr()
+      else: return self.sendPassthrough()
+    
+    if self.path.startswith('/services/browse'):
+      if noBrowse: return self.sendForbid()
+      return self.sendResponse(self.stripFolders(self.path))
+    
+    if noManage and self.path.startswith('/manage'):
+      return self.sendForbid()
+    
+    if re.match(r'/library/metadata/.+', self.path):
+      try: body, headers = getEtree(kBase + self.path, *self.getDataAndHeaders())
+      except: return self.sendErr()
+      contentRating = content.xpath('/MediaContainer/*/@contentRating')
+      if contentRating and viewerAge and contentRatings.minAgeForContentRating(contentRating[0]) > viewerAge or not validateMetadataKey(self.path.split('/')[-1]):
+        return self.sendErr()
+      return self.sendResponse((etree.tostring(body), headers))
+    
+    self.sendPassthrough()
 
   def do_GET(self):
     self.handleRequest()
