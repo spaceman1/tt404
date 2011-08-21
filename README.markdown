@@ -35,6 +35,5 @@ If your system does not include either of those firewalls: install a firewall th
 
 Known Issues
 ------------
-Plex for iOS seems to route around the firewall. More info as it becomes available.
-
-This is an early beta. Plex is updated frequently. Some holes might still exist or be opened in future versions of Plex. If you find one please message me with details so I can plug it.
+This is an early beta. Plex is updated frequently. Some holes might still exist or be opened in future versions of Plex.
+If you find one please message me with details so I can plug it.
