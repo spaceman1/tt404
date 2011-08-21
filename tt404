@@ -28,7 +28,6 @@ die = False
 # TODO: Catch and pass on error codes
 # TODO: Block */:/transcode requests to identifiers matching hidden plug-ins.
 # TODO: Have this work with other HTTP verbs: HEAD, PUT, TRACE, OPTIONS, CONNECT, PATCH
-# TODO: Add setting for access rights to plug-in prefs
 # TODO: Support for port 3000 stuff
 
 def getURL(url, data=None, headers=None):
@@ -247,13 +246,19 @@ class PMSHandler(BaseHTTPRequestHandler):
     if re.match(r'/[^/]+/:/transcode', self.path):
       try: ratingKey = self.path.split('ratingKey=')[1].split('&')[0]
       except IndexError:
-        print 'Transcode request lacking ratingKey', self.path
         try: url = urllib.unquote(self.path.split('url=')[1].split('&')[0])
-        except IndexError: return self.sendErr()
+        except IndexError: 
+          print 'Transcode Request lacks url'
+          return self.sendErr()
         
-        if urlparse.urlparse(url).path in self.getBlacklistedFolders(): return self.sendErr()
-        else: return self.sendPassthrough()
-      
+        parsedURL = urlparse.urlparse(url)
+        if parsedURL.netloc.split(':')[-1] == '32400':
+          try: ratingKey = parsedURL.path.split('/')[3]
+          except IndexError:
+            if urlparse.urlparse(url).path in self.getBlacklistedFolders(): return self.sendErr()
+            else: return self.sendPassthrough()
+        else:
+          print 'Transcode request lacking ratingKey', self.path
       try: contentRating = etree.parse(kBase + '/library/metadata/' + ratingKey).xpath('/MediaContainer/*/@contentRating')
       except: return self.sendErr()
       
@@ -299,7 +304,7 @@ class PMSHandler(BaseHTTPRequestHandler):
     if re.match(r'/library/metadata/.+', self.path):
       try: body, headers = getEtree(kBase + self.path, *self.getDataAndHeaders())
       except: return self.sendErr()
-      contentRating = content.xpath('/MediaContainer/*/@contentRating')
+      contentRating = body.xpath('/MediaContainer/*/@contentRating')
       if contentRating and viewerAge and contentRatings.minAgeForContentRating(contentRating[0]) > viewerAge or not validateMetadataKey(self.path.split('/')[-1]):
         return self.sendErr()
       return self.sendResponse((etree.tostring(body), headers))
