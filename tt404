@@ -180,6 +180,22 @@ class PMSHandler(BaseHTTPRequestHandler):
         out += etree.tostring(item)
         itemCount += 1
     return '<?xml version="1.0" encoding="UTF-8"?>\n<MediaContainer size="%i">\n' % itemCount + out + '</MediaContainer>', headers
+  
+  def stripPrefs(self):
+    body, headers = getEtree(kBase + self.path)
+    out = ''
+    prefCount = 0
+    identifier = body.xpath('/MediaContainer/@identifier')[0]
+    for pref in body.xpath('/MediaContainer/Setting'):
+      if pref.get('secure') != 'true':
+        out += etree.tostring(pref)
+        prefCount += 1
+      elif securePrefsAccess['write']:
+        pref.attrib['value'] = '***'
+        out += etree.tostring(pref)
+        prefCount += 1
+    return '''<?xml version='1.0' encoding='utf-8'?>\n<MediaContainer noHistory="0" replaceParent="0" size="%i" identifier="%s">\n''' % (prefCount, identifier) + out + '</MediaContainer>', headers
+    
 
   def sendHeaders(self, headers, length):
     for k, v in headers.iteritems():
@@ -198,9 +214,10 @@ class PMSHandler(BaseHTTPRequestHandler):
     self.wfile.write(kForbiddenBody)
   
   def sendPassthrough(self):
-    out, headers = getURL(kBase + self.path, *self.getDataAndHeaders())
+    body, headers = getURL(kBase + self.path, *self.getDataAndHeaders())
     self.send_response(200)
-    self.sendHeaders(headers, len(out))
+    self.sendHeaders(headers, len(body))
+    self.wfile.write(body)
   
   def sendResponse(self, (body, headers)):
     self.send_response(200)
@@ -242,6 +259,27 @@ class PMSHandler(BaseHTTPRequestHandler):
       
       if contentRating and viewerAge and contentRatings.minAgeForContentRating(contentRating[0]) > viewerAge or not validateMetadataKey(ratingKey): return self.sendErr()
       else: return self.sendPassthrough()
+    
+    if re.match(r'/[^/]+/[^/]+/:/prefs/set', self.path):
+      prefs, headers = getEtree(kBase + self.path.split('/set')[0])
+      del headers
+      
+      path, query = self.path.split('?')
+      newQuery = ''
+      for setting in query.split('&'):
+        if not setting: continue
+        id, value = setting.split('=')
+        try: settingTag = prefs.xpath('/MediaContainer/Setting[@id=%s]' % id)[0]
+        except IndexError: continue
+        secure = settingTag.get('secure')
+        if secure and prefsAccess['write'] or not secure and securePrefsAccess['write']: newQuery += setting + '&'
+      
+      return self.sendResponse(getURL(kBase + path + newQuery))
+    
+    if re.match(r'/[^/]+/[^/]+/:/prefs', self.path):
+      if not prefsAccess['read']: return self.sendErr()
+      if not securePrefsAccess['read']: return self.sendResponse(self.stripPrefs())
+      return self.sendPassthrough()
     
     if any(ifilter(lambda p: self.path.startswith(p), kPluginShortPaths)):
       pathComponents = self.path.split('/')
