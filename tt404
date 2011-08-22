@@ -26,9 +26,10 @@ die = False
 
 # TODO: Examples of how to whitelist certain devices
 # TODO: Catch and pass on error codes
-# TODO: Block */:/transcode requests to identifiers matching hidden plug-ins.
 # TODO: Have this work with other HTTP verbs: HEAD, PUT, TRACE, OPTIONS, CONNECT, PATCH
 # TODO: Support for port 3000 stuff
+# TODO: Support die in updateCache and getMetadataKeys
+# TODO: Quiet mode for updateCache when not loading for the first time
 
 def getURL(url, data=None, headers=None):
   # print 'Requesting', url, data, headers
@@ -62,9 +63,9 @@ def _bare_address_string(self):
   host, port = self.client_address[:2]
   return '%s' % host
 
-def updateCache():
+def updateCache(verbose=False):
 	global _metadataKeys, _libCacheTimes
-	print 'Getting metadata keys'
+	if verbose: print 'Getting metadata keys'
 	for lib in getEtree(kBase + '/library/sections/')[0].xpath('/MediaContainer/Directory'):
 	  libKey = lib.get('key')
 	  updatedAt = lib.get('updatedAt')
@@ -72,17 +73,17 @@ def updateCache():
 	    _libCacheTimes[libKey] = updatedAt
 	    v = libKey
 	    _metadataKeys.update(getMetadataKeys(kBase + '/library/sections/%s/all' % libKey, v))
-	  print 'Finished loading', lib.get('title')
+	  if verbose: print 'Finished loading', lib.get('title')
 	_metadataKeysCacheTime = datetime.datetime.now()
 	with open('cache', 'w') as f:
 	  pickle.dump({'metadataKeys': _metadataKeys, 'libCacheTimes': _libCacheTimes}, f)
-	print 'Saved metadata info'
+	if verbose: print 'Saved metadata info'
 
 def validateMetadataKey(key):
   global _metadataKeys, _libCacheTimes
   try: return _metadataKeys[key][0] not in libBlacklist
   except KeyError: pass
-  updateCache()  
+  updateCache(True)  
   return _metadataKeys[key]
 
 def getMetadataKeys(path, v):
@@ -259,6 +260,7 @@ class PMSHandler(BaseHTTPRequestHandler):
             else: return self.sendPassthrough()
         else:
           print 'Transcode request lacking ratingKey', self.path
+          return self.sendPassthrough()
       try: contentRating = etree.parse(kBase + '/library/metadata/' + ratingKey).xpath('/MediaContainer/*/@contentRating')
       except: return self.sendErr()
       
@@ -335,7 +337,7 @@ def main():
     print 'Loading library info for the first time. This might take a while'
     _metadataKeys = dict()
     _libCacheTimes = dict()    
-    updateCache()
+    updateCache(True)
   threading.Thread(target=updater).start()
   
   BaseHTTPRequestHandler.address_string = _bare_address_string # see comment above
